@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0d0d0d">
+  <title>BEARS™ STATS</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            coal: '#0d0d0d',
+            card: '#1a1a1a',
+            card2: '#141414',
+            neon: '#ff1e2d',
+            blood: '#8f1d24'
+          },
+          fontFamily: {
+            display: ['Impact', 'Haettenschweiler', 'Arial Narrow Bold', 'sans-serif']
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { background:#0d0d0d; -webkit-tap-highlight-color: transparent; }
+    .glow { text-shadow: 0 0 8px rgba(255,30,45,.9), 0 0 22px rgba(255,30,45,.55), 0 0 44px rgba(255,30,45,.35); }
+    .glow-box { box-shadow: 0 0 0 1px rgba(255,30,45,.5), 0 0 24px rgba(255,30,45,.25); }
+    .noise {
+      background-image:
+        radial-gradient(circle at 50% -10%, rgba(255,30,45,.12), transparent 55%),
+        repeating-linear-gradient(0deg, rgba(255,255,255,.015) 0 1px, transparent 1px 3px);
+    }
+    @keyframes pulseGlow { 0%,100%{opacity:1} 50%{opacity:.72} }
+    .pulse { animation: pulseGlow 2.4s ease-in-out infinite; }
+
+    /* карточка-профиль (bottom sheet) */
+    #sheet-bg    { opacity:0; transition: opacity .2s; }
+    #sheet-panel { transform: translateY(100%); transition: transform .22s ease-out; }
+    #sheet.open #sheet-bg    { opacity:1; }
+    #sheet.open #sheet-panel { transform: translateY(0); }
+    [data-i] { cursor:pointer; }
+  </style>
+</head>
+<body class="bg-coal text-zinc-200 font-sans antialiased noise min-h-screen">
+  <div class="max-w-md mx-auto px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(2rem,env(safe-area-inset-bottom))]">
+
+    <!-- ШАПКА -->
+    <header class="text-center pt-2">
+      <div class="mx-auto w-16 h-16 rounded-xl bg-card border border-neon/40 glow-box flex items-center justify-center rotate-3">
+        <!-- заглушка логотипа -->
+        <svg viewBox="0 0 24 24" class="w-9 h-9 text-neon" fill="currentColor">
+          <circle cx="5.5" cy="6" r="2.6"/><circle cx="18.5" cy="6" r="2.6"/>
+          <path d="M12 6c-4.4 0-7.5 3-7.5 7 0 4 3.1 7 7.5 7s7.5-3 7.5-7c0-4-3.1-7-7.5-7Zm-2.6 5.6a1 1 0 1 1 0 2 1 1 0 0 1 0-2Zm5.2 0a1 1 0 1 1 0 2 1 1 0 0 1 0-2ZM12 15.2c1.2 0 2 .6 2 1.2s-.8 1.2-2 1.2-2-.6-2-1.2.8-1.2 2-1.2Z"/>
+        </svg>
+      </div>
+
+      <h1 class="font-display text-4xl tracking-[0.15em] mt-3 uppercase text-white">
+        BEARS<span class="text-neon">™</span> <span class="text-neon glow">STATS</span>
+      </h1>
+
+      <div class="mt-4 rounded-xl bg-card border border-zinc-800 px-4 py-3">
+        <p class="text-[10px] uppercase tracking-[0.25em] text-zinc-500">Всего просмотров сетки</p>
+        <p id="total-views" class="font-display text-5xl text-neon glow pulse leading-none mt-1">—</p>
+      </div>
+    </header>
+
+    <!-- КНОПКА ТГ -->
+    <a href="https://t.me/bears_editors" target="_blank" rel="noopener"
+       class="mt-4 flex items-center justify-center gap-2 w-full rounded-xl bg-neon text-white font-extrabold uppercase tracking-widest text-sm py-3.5 active:scale-[.98] transition shadow-[0_0_20px_rgba(255,30,45,.4)]">
+      <svg viewBox="0 0 24 24" class="w-5 h-5" fill="currentColor">
+        <path d="M21.9 4.1a1.2 1.2 0 0 0-1.3-.2L2.5 10.9c-1 .4-.9 1.8.1 2.1l4.6 1.4 1.8 5.6c.2.7 1.1.9 1.6.4l2.5-2.4 4.7 3.5c.6.4 1.4.1 1.6-.6L22 5.3c.1-.5-.1-1-.1-1.2ZM9.2 13.6l8.2-5.1-6.4 6.3-.3 2.7-1.5-3.9Z"/>
+      </svg>
+      Bears Editors
+    </a>
+
+    <!-- ЛИДЕРБОРД -->
+    <section class="mt-7">
+      <div class="flex items-end justify-between mb-3">
+        <h2 class="font-display text-2xl uppercase tracking-wider text-white">Лидерборд <span class="text-neon">эдиторов</span></h2>
+        <span class="text-[10px] uppercase tracking-widest text-zinc-500">за неделю</span>
+      </div>
+
+      <div id="top1"></div>
+      <div id="top23" class="grid grid-cols-2 gap-3 mt-3"></div>
+      <ul id="rest" class="mt-3 space-y-2"></ul>
+    </section>
+
+    <footer class="mt-8 text-center text-[10px] uppercase tracking-[0.3em] text-zinc-600">
+      BEARS™ · Editors Squad
+    </footer>
+  </div>
+
+  <!-- ПРОФИЛЬ УЧАСТНИКА -->
+  <div id="sheet" class="fixed inset-0 z-50" hidden>
+    <div id="sheet-bg" data-close class="absolute inset-0 bg-black/75 backdrop-blur-sm"></div>
+    <div id="sheet-panel"
+         class="absolute inset-x-0 bottom-0 mx-auto max-w-md max-h-[90vh] overflow-y-auto rounded-t-3xl bg-card border-t border-neon/50 glow-box px-5 pt-3 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+      <div class="mx-auto w-10 h-1 rounded-full bg-zinc-700 mb-4"></div>
+      <div id="sheet-body"></div>
+    </div>
+  </div>
+
+<script>
+(async () => {
+  let members = [];
+
+  const fmt = n => n >= 1e6 ? (n / 1e6).toFixed(1) + 'M'
+                : n >= 1e3 ? (n / 1e3).toFixed(1) + 'K' : String(n);
+  const esc = s => String(s).replace(/[&<>"']/g,
+    c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+  // ── ник для отображения ──
+  // из ника убираем командный тег «BEARS™» (он и так на каждом сайте), остальное — как есть
+  const shortNick = (m) => {
+    const full = String(m.nickname || '').trim();
+    if (!full) return m.username ? '@' + m.username : '?';
+    const parts = full.split('|').map(s => s.trim()).filter(Boolean);
+    const kept = parts.filter(p => !/bears\s*(?:tm|™)/i.test(p.normalize('NFKC')));
+    return kept.join(' | ') || full;
+  };
+  // инициалы для аватарки-заглушки: только латиница/цифры, иначе из TikTok-юзернейма
+  const initials = (m) => {
+    const latin = s => (String(s || '').normalize('NFKC').match(/[A-Za-z0-9]/g) || []).join('');
+    const src = latin(shortNick(m)) || latin(m.username);
+    return (src.slice(0, 2) || '?').toUpperCase();
+  };
+
+  // ── срок в тиме ──
+  const plural = (n, [a, b, c]) => {
+    const m10 = n % 10, m100 = n % 100;
+    return m10 === 1 && m100 !== 11 ? a
+         : (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) ? b : c;
+  };
+  const parseDate = iso => {
+    if (!iso) return null;
+    const d = new Date(iso);
+    return isNaN(d) ? null : d;
+  };
+  const tenure = d => {
+    const now = new Date();
+    let months = (now.getFullYear() - d.getFullYear()) * 12 + now.getMonth() - d.getMonth();
+    if (now.getDate() < d.getDate()) months--;
+    if (months < 1) {
+      const days = Math.max(0, Math.floor((now - d) / 864e5));
+      return `${days} ${plural(days, ['день', 'дня', 'дней'])}`;
+    }
+    const y = Math.floor(months / 12), m = months % 12;
+    return [
+      y ? `${y} ${plural(y, ['год', 'года', 'лет'])}` : '',
+      m ? `${m} мес.` : ''
+    ].filter(Boolean).join(' ');
+  };
+
+  // ── ссылки ──
+  const tgUrl = v => {
+    if (!v) return '';
+    const s = String(v).trim();
+    if (/^https?:\/\//i.test(s)) return s;
+    if (/^t\.me\//i.test(s)) return 'https://' + s;
+    return 'https://t.me/' + s.replace(/^@/, '');
+  };
+  const ttUrl = nick => 'https://www.tiktok.com/@' + encodeURIComponent(nick);
+
+  const TG_ICON = `<svg viewBox="0 0 24 24" class="w-5 h-5" fill="currentColor"><path d="M21.9 4.1a1.2 1.2 0 0 0-1.3-.2L2.5 10.9c-1 .4-.9 1.8.1 2.1l4.6 1.4 1.8 5.6c.2.7 1.1.9 1.6.4l2.5-2.4 4.7 3.5c.6.4 1.4.1 1.6-.6L22 5.3c.1-.5-.1-1-.1-1.2ZM9.2 13.6l8.2-5.1-6.4 6.3-.3 2.7-1.5-3.9Z"/></svg>`;
+
+  const ROLES = {
+    leader: ['Глава',   'bg-neon text-white shadow-[0_0_10px_rgba(255,30,45,.6)]'],
+    deputy: ['Зам',     'border border-neon text-neon'],
+    member: ['Участник','border border-zinc-600 text-zinc-400']
+  };
+
+  const badge = r => {
+    const [label, cls] = ROLES[r] || ROLES.member;
+    return `<span class="shrink-0 rounded-md text-[8px] font-black uppercase tracking-wider px-1 py-0.5 ${cls}">${label}</span>`;
+  };
+
+  const growth = g => g >= 0
+    ? `<span class="text-neon font-bold">▲ ${g}%</span>`
+    : `<span class="text-zinc-500 font-bold">▼ ${Math.abs(g)}%</span>`;
+
+  const avatar = (m, size, border, text) => `
+    <div class="relative shrink-0 ${size} rounded-full overflow-hidden bg-zinc-800 border-2 ${border} flex items-center justify-center font-display ${text}">
+      ${esc(initials(m))}
+      ${m.avatar ? `<img src="${esc(m.avatar)}" alt="" loading="lazy" onerror="this.remove()" class="absolute inset-0 w-full h-full object-cover">` : ''}
+    </div>`;
+
+  // ── карточки лидерборда (data-i = индекс в отсортированном списке) ──
+  const top1 = (m) => `
+    <div data-i="0" role="button" tabindex="0" aria-label="Профиль ${esc(shortNick(m))}"
+         class="relative rounded-2xl bg-gradient-to-b from-[#1f1f1f] to-card border border-neon/60 glow-box p-4 overflow-hidden active:scale-[.99] transition">
+      <span class="absolute -right-2 -top-4 font-display text-8xl text-neon/10 select-none">1</span>
+      <div class="flex items-center gap-4 relative">
+        ${avatar(m, 'w-20 h-20', 'border-neon', 'text-3xl text-neon')}
+        <div class="min-w-0 flex-1">
+          <p class="text-[10px] uppercase tracking-[0.25em] text-neon">👑 Топ эдитор</p>
+          <div class="flex items-center gap-2 min-w-0">
+            <p class="font-bold text-lg text-white truncate">${esc(shortNick(m))}</p>
+            ${badge(m.role)}
+          </div>
+          <div class="flex items-center gap-2 mt-1">
+            <span class="font-display text-3xl text-neon glow leading-none">${fmt(m.views)}</span>
+            <span class="text-sm">${growth(m.growth)}</span>
+          </div>
+          <p class="text-[10px] uppercase tracking-widest text-zinc-500">просмотров · ❤ ${fmt(m.likes)}</p>
+        </div>
+      </div>
+    </div>`;
+
+  const podium = (m, place) => {
+    const silver = place === 2;
+    return `
+    <div data-i="${place - 1}" role="button" tabindex="0" aria-label="Профиль ${esc(shortNick(m))}"
+         class="rounded-2xl bg-card border ${silver ? 'border-zinc-700' : 'border-blood'} p-3 text-center relative overflow-hidden active:scale-[.98] transition">
+      <span class="absolute right-1 -top-2 font-display text-6xl text-white/5 select-none">${place}</span>
+      <div class="flex justify-center">
+        ${avatar(m, 'w-14 h-14', silver ? 'border-zinc-400' : 'border-blood', 'text-xl ' + (silver ? 'text-zinc-200' : 'text-red-400'))}
+      </div>
+      <div class="flex items-center justify-center gap-1.5 mt-2 min-w-0">
+        <p class="font-bold text-sm text-white truncate">${esc(shortNick(m))}</p>
+        ${badge(m.role)}
+      </div>
+      <p class="font-display text-2xl text-zinc-100 leading-none mt-1">${fmt(m.views)}</p>
+      <p class="text-xs mt-1">${growth(m.growth)}</p>
+      <p class="text-[9px] uppercase tracking-widest text-zinc-500">❤ ${fmt(m.likes)} · за неделю</p>
+    </div>`;
+  };
+
+  const row = (m, place) => `
+    <li data-i="${place - 1}" role="button" tabindex="0" aria-label="Профиль ${esc(shortNick(m))}"
+        class="flex items-center gap-3 rounded-xl bg-card2 border border-zinc-800 px-3 py-2.5 active:scale-[.99] transition">
+      <span class="font-display text-xl text-zinc-600 w-5 text-center">${place}</span>
+      ${avatar(m, 'w-10 h-10', 'border-zinc-600', 'text-sm text-zinc-300')}
+      <div class="min-w-0 flex-1">
+        <div class="flex items-center gap-1.5 min-w-0">
+          <p class="font-semibold text-sm text-white truncate">${esc(shortNick(m))}</p>
+          ${badge(m.role)}
+        </div>
+        <p class="text-[10px] uppercase tracking-widest text-zinc-500">❤ ${fmt(m.likes)}</p>
+      </div>
+      <div class="text-right">
+        <p class="font-display text-lg text-zinc-100 leading-none">${fmt(m.views)}</p>
+        <p class="text-xs">${growth(m.growth)}</p>
+      </div>
+      <span class="text-zinc-600 text-lg leading-none">›</span>
+    </li>`;
+
+  // ── профиль ──
+  const statBox = (value, label) => `
+    <div class="rounded-xl bg-card2 border border-zinc-800 py-2.5 text-center">
+      <p class="font-display text-xl text-white leading-none">${value}</p>
+      <p class="text-[9px] uppercase tracking-widest text-zinc-500 mt-1">${label}</p>
+    </div>`;
+
+  const profile = (m, place) => {
+    const joined = parseDate(m.joined);
+    const tg = tgUrl(m.telegram);
+    return `
+    <div class="flex items-center gap-4">
+      ${avatar(m, 'w-20 h-20', 'border-neon', 'text-3xl text-neon')}
+      <div class="min-w-0 flex-1">
+        <div class="flex items-center gap-2 min-w-0">
+          <p class="font-bold text-xl text-white truncate">${esc(shortNick(m))}</p>
+          ${badge(m.role)}
+        </div>
+        <p class="text-[10px] uppercase tracking-[0.25em] text-neon mt-1">#${place} в топе · ${growth(m.growth)}</p>
+      </div>
+      <button data-close aria-label="Закрыть"
+              class="self-start shrink-0 w-9 h-9 rounded-full bg-card2 border border-zinc-700 text-zinc-400 text-lg leading-none active:scale-95">✕</button>
+    </div>
+
+    <div class="grid grid-cols-3 gap-2 mt-4">
+      ${statBox(fmt(m.views || 0), 'просмотры')}
+      ${statBox(fmt(m.likes || 0), 'лайки')}
+      ${statBox(m.followers != null ? fmt(m.followers) : '—', 'подписчики')}
+    </div>
+
+    <div class="mt-3 rounded-xl bg-card2 border border-zinc-800 px-4 py-3">
+      <p class="text-[10px] uppercase tracking-[0.25em] text-zinc-500">В тиме</p>
+      ${joined
+        ? `<p class="font-display text-3xl text-neon glow leading-none mt-1">${tenure(joined)}</p>
+           <p class="text-[10px] uppercase tracking-widest text-zinc-500 mt-1">с ${joined.toLocaleDateString('ru-RU')}</p>`
+        : `<p class="font-display text-xl text-zinc-600 leading-none mt-1">не указано</p>`}
+    </div>
+
+    <div class="mt-4 space-y-2">
+      ${tg
+        ? `<a href="${esc(tg)}" target="_blank" rel="noopener"
+             class="flex items-center justify-center gap-2 w-full rounded-xl bg-neon text-white font-extrabold uppercase tracking-widest text-sm py-3 active:scale-[.98] transition shadow-[0_0_20px_rgba(255,30,45,.4)]">${TG_ICON} Telegram-канал</a>`
+        : `<div class="flex items-center justify-center w-full rounded-xl border border-zinc-800 text-zinc-600 font-bold uppercase tracking-widest text-xs py-3">Канал не указан</div>`}
+      ${m.username
+        ? `<a href="${esc(ttUrl(m.username))}" target="_blank" rel="noopener"
+             class="flex items-center justify-center w-full rounded-xl border border-zinc-600 text-zinc-200 font-bold uppercase tracking-widest text-xs py-3 active:scale-[.98] transition">TikTok · @${esc(m.username)}</a>`
+        : ''}
+    </div>`;
+  };
+
+  const sheet = document.getElementById('sheet');
+  const sheetBody = document.getElementById('sheet-body');
+
+  const openSheet = (i) => {
+    const m = members[i];
+    if (!m) return;
+    sheetBody.innerHTML = profile(m, i + 1);
+    sheet.hidden = false;
+    document.body.style.overflow = 'hidden';
+    requestAnimationFrame(() => requestAnimationFrame(() => sheet.classList.add('open')));
+  };
+  const closeSheet = () => {
+    sheet.classList.remove('open');
+    document.body.style.overflow = '';
+    setTimeout(() => { if (!sheet.classList.contains('open')) sheet.hidden = true; }, 230);
+  };
+
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('[data-close]')) return closeSheet();
+    const card = e.target.closest('[data-i]');
+    if (card) openSheet(Number(card.dataset.i));
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeSheet();
+    if ((e.key === 'Enter' || e.key === ' ') && e.target.matches && e.target.matches('[data-i]')) {
+      e.preventDefault();
+      openSheet(Number(e.target.dataset.i));
+    }
+  });
+
+  try {
+    const res = await fetch('stats.json', { cache: 'no-cache' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+
+    members = [...data.members].sort((a, b) => b.views - a.views);
+
+    const total = document.getElementById('total-views');
+    if (total && data.total_views) total.textContent = fmt(data.total_views);
+
+    document.getElementById('top1').innerHTML  = members[0] ? top1(members[0]) : '';
+    document.getElementById('top23').innerHTML = members.slice(1, 3).map((m, i) => podium(m, i + 2)).join('');
+    document.getElementById('rest').innerHTML  = members.slice(3).map((m, i) => row(m, i + 4)).join('');
+  } catch (e) {
+    console.error('Не удалось загрузить stats.json:', e);
+    document.getElementById('top1').innerHTML =
+      '<p class="text-center text-sm text-zinc-500 py-6">Не удалось загрузить статистику</p>';
+  }
+})();
+</script>
+</body>
+</html>

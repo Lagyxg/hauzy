@@ -1,0 +1,16 @@
+{
+  "name": "bears-stats-updater",
+  "version": "1.0.0",
+  "description": "Ежедневное обновление stats.json для BEARS™ STATS",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "axios": "^1.7.9"
+  },
+  "license": "MIT"
+}
