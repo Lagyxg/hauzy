@@ -32,7 +32,13 @@ const API_BASE = 'https://www.tikwm.com/api';
 const http = axios.create({
   baseURL: API_BASE,
   timeout: 20000,
-  headers: { 'User-Agent': 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/124.0 Mobile Safari/537.36' }
+  headers: {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
+    'Accept': 'application/json, text/plain, */*',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Referer': 'https://www.tikwm.com/',
+    'Origin': 'https://www.tikwm.com'
+  }
 });
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -45,7 +51,8 @@ async function call(endpoint, params, tries = 3) {
       if (data && data.code === 0 && data.data) return data.data;
       throw new Error((data && data.msg) || 'пустой ответ API');
     } catch (e) {
-      if (i === tries) throw e;
+      const status = e.response && e.response.status;
+      if (i === tries || status === 401 || status === 403) throw e;
       await sleep(DELAY_MS * i * 2); // растущая пауза перед повтором
     }
   }
@@ -119,6 +126,7 @@ async function updateStats(statsPath) {
 
   const members = [];
   let fresh = 0;
+  let failsInRow = 0;
 
   for (const old of roster) {
     const username = String(old.username || '').trim().replace(/^@/, '');
@@ -145,10 +153,17 @@ async function updateStats(statsPath) {
         growth
       });
       fresh++;
+      failsInRow = 0;
       log(`OK  ${label}: views=${p.views} likes=${p.likes} followers=${p.followers}`);
     } catch (e) {
-      log(`ERR ${label}: ${e.message}`);
+      const d = e.response && e.response.data;
+      const body = d ? ' | ' + String(typeof d === 'string' ? d : JSON.stringify(d)).replace(/\s+/g, ' ').slice(0, 200) : '';
+      log(`ERR ${label}: ${e.message}${body}`);
       members.push(old); // оставляем прошлые данные, чтобы сайт не ломался
+      failsInRow++;
+      if (fresh === 0 && failsInRow >= 4) {
+        throw new Error('API отклоняет запросы (4 ошибки подряд, ни одного успеха) — останавливаюсь, stats.json не меняю');
+      }
     }
     await sleep(DELAY_MS);
   }
