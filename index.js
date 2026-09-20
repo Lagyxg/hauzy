@@ -1,78 +1,52 @@
 /**
- * BEARS™ stats updater
- * Список участников берётся из stats.json (поле username — TikTok-юзернейм).
- * Скрипт тянет статистику через неофициальный API tikwm.com, обновляет
- * просмотры/лайки/подписчики/рост, а всё остальное (nickname, role, joined,
- * telegram и любые другие поля) оставляет как есть. Затем перезаписывает
- * stats.json и (опционально) пушит его в GitHub.
+ * BEARS™ stats updater (через Apify)
  *
- * Запуск: node index.js
+ * Список участников берётся из stats.json (поле username — TikTok-юзернейм).
+ * Скрипт запускает два готовых "актора" на Apify:
+ *   1) mu0i/tiktok-user-posts          — последние видео каждого профиля → просмотры и лайки
+ *   2) coregent/tiktok-profile-scraper — подписчики и аватарка (необязательно)
+ * и обновляет в stats.json views / likes / growth / followers / avatar.
+ * Всё остальное (nickname, role, joined, telegram ...) остаётся как есть.
+ * Затем перезаписывает stats.json и (опционально) пушит его в GitHub.
+ *
+ * Запуск: APIFY_TOKEN=... node index.js
  */
-const axios = require('axios');
+const { ApifyClient } = require('apify-client');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
 
 // ────────── НАСТРОЙКИ ──────────
-const LAST_VIDEOS = 20;      // сколько последних видео суммировать в "просмотры"
-const DELAY_MS = 1500;       // пауза между запросами (у бесплатного tikwm лимит ~1 запрос/сек)
+const POSTS_ACTOR = process.env.APIFY_POSTS_ACTOR || 'mu0i/tiktok-user-posts';
+// чтобы отключить второй актор (подписчики/аватарки): APIFY_PROFILE_ACTOR=off
+const PROFILE_ACTOR = process.env.APIFY_PROFILE_ACTOR === 'off'
+  ? ''
+  : (process.env.APIFY_PROFILE_ACTOR || 'coregent/tiktok-profile-scraper');
+// сколько последних видео каждого участника суммировать в "просмотры"
+// (Apify берёт деньги за каждое видео: ~$0.0025 за штуку на бесплатном тарифе)
+const MAX_POSTS = Number(process.env.MAX_POSTS) || 10;
 const STATS_FILE = process.env.STATS_FILE || path.join(__dirname, 'stats.json');
-const API_BASE = 'https://www.tikwm.com/api';
 
 // Для автопуша в GitHub (переменные окружения на хостинге).
 // Если заданы — скрипт сам клонирует репозиторий, читает список участников
 // оттуда, обновляет stats.json и пушит обратно. Если нет — работает с локальным файлом.
 //   GITHUB_TOKEN  — fine-grained PAT с правом Contents: Read and write на репозиторий
 //   GITHUB_REPO   — "username/repo"
-//   GITHUB_BRANCH — ветка, которую деплоит Netlify (по умолчанию main)
+//   GITHUB_BRANCH — ветка (по умолчанию main)
 //   GITHUB_FILE   — путь к stats.json внутри репозитория (по умолчанию stats.json)
 // ───────────────────────────────
 
-const http = axios.create({
-  baseURL: API_BASE,
-  timeout: 20000,
-  headers: {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
-    'Accept': 'application/json, text/plain, */*',
-    'Accept-Language': 'en-US,en;q=0.9',
-    'Referer': 'https://www.tikwm.com/',
-    'Origin': 'https://www.tikwm.com'
-  }
-});
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const log = (...a) => console.log(new Date().toISOString(), ...a);
+const clean = (u) => String(u || '').trim().replace(/^@/, '');
 
-async function call(endpoint, params, tries = 3) {
-  for (let i = 1; i <= tries; i++) {
-    try {
-      const { data } = await http.get(endpoint, { params });
-      if (data && data.code === 0 && data.data) return data.data;
-      throw new Error((data && data.msg) || 'пустой ответ API');
-    } catch (e) {
-      const status = e.response && e.response.status;
-      if (i === tries || status === 401 || status === 403) throw e;
-      await sleep(DELAY_MS * i * 2); // растущая пауза перед повтором
-    }
+async function runActor(client, actorId, input) {
+  const run = await client.actor(actorId).call(input, { waitSecs: 900 });
+  if (run.status !== 'SUCCEEDED') {
+    throw new Error(`${actorId}: запуск завершился со статусом ${run.status}`);
   }
-}
-
-async function fetchProfile(username) {
-  const info = await call('/user/info', { unique_id: username });
-  await sleep(DELAY_MS);
-  const posts = await call('/user/posts', { unique_id: username, count: LAST_VIDEOS, cursor: 0 });
-
-  const stats = info.stats || {};
-  const user = info.user || {};
-  const videos = posts.videos || [];
-
-  return {
-    avatar: user.avatarLarger || user.avatarMedium || user.avatarThumb || '',
-    followers: stats.followerCount || 0,
-    likes: stats.heartCount || stats.heart || 0,
-    views: videos.reduce((sum, v) => sum + (v.play_count || 0), 0)
-  };
+  const { items } = await client.dataset(run.defaultDatasetId).listItems({ limit: 5000 });
+  return items;
 }
 
 // ────────── GitHub ──────────
@@ -112,7 +86,7 @@ function commitAndPush(gh, dir) {
     git(['-c', 'user.name=bears-bot', '-c', 'user.email=bears-bot@users.noreply.github.com',
       'commit', '-m', `stats: update ${new Date().toISOString().slice(0, 10)}`], dir);
     git(['push', 'origin', gh.branch], dir);
-    log('stats.json запушен в GitHub, Netlify задеплоит сам');
+    log('stats.json запушен в GitHub');
   } catch (e) {
     throw new Error(scrub(e.message, gh.token));
   }
@@ -120,57 +94,97 @@ function commitAndPush(gh, dir) {
 
 // ────────── основной процесс ──────────
 async function updateStats(statsPath) {
+  const token = process.env.APIFY_TOKEN;
+  if (!token) throw new Error('Не задан APIFY_TOKEN (API-токен из Apify Console → Settings → API & Integrations)');
+  const client = new ApifyClient({ token });
+
   const data = JSON.parse(fs.readFileSync(statsPath, 'utf8'));
   const roster = Array.isArray(data.members) ? data.members : [];
   if (!roster.length) throw new Error('В stats.json нет участников (members пуст)');
 
+  const usernames = [...new Set(roster.map((m) => clean(m.username)).filter(Boolean))];
+  if (!usernames.length) throw new Error('Ни у одного участника не указан username');
+
+  // 1) видео → просмотры и лайки
+  log(`Apify: ${POSTS_ACTOR}, профилей: ${usernames.length}, видео на профиль: до ${MAX_POSTS}`);
+  const rows = await runActor(client, POSTS_ACTOR, {
+    profiles: usernames,
+    maxPostsPerProfile: MAX_POSTS,
+    includePinned: false,        // закреплённые могут быть старыми и портят "свежесть"
+    includeDownloadUrls: false
+  });
+
+  const byUser = new Map();
+  let skipped = 0;
+  for (const r of rows) {
+    if (!r || !r.authorUsername) {
+      if (skipped++ < 2) log('Строка без видео (пропускаю):', JSON.stringify(r).slice(0, 200));
+      continue;
+    }
+    const key = String(r.authorUsername).toLowerCase();
+    const a = byUser.get(key) || { views: 0, likes: 0, videos: 0 };
+    a.views += Number(r.playCount) || 0;
+    a.likes += Number(r.likeCount) || 0;
+    a.videos += 1;
+    byUser.set(key, a);
+  }
+  log(`Получено видео: ${rows.length - skipped}, профилей с видео: ${byUser.size}`);
+  if (!byUser.size) throw new Error('Актор не вернул ни одного видео — stats.json не трогаем');
+
+  // 2) профили → подписчики и аватарка (не критично)
+  const profiles = new Map();
+  if (PROFILE_ACTOR) {
+    try {
+      log(`Apify: ${PROFILE_ACTOR}`);
+      const prows = await runActor(client, PROFILE_ACTOR, { profiles: usernames });
+      for (const p of prows) {
+        if (p && p.username && p.success !== false) profiles.set(String(p.username).toLowerCase(), p);
+      }
+      log(`Профилей получено: ${profiles.size}`);
+    } catch (e) {
+      log(`WARN подписчики/аватарки не обновлены: ${e.message}`);
+    }
+  }
+
+  // 3) склеиваем с текущим списком
   const members = [];
   let fresh = 0;
-  let failsInRow = 0;
-
   for (const old of roster) {
-    const username = String(old.username || '').trim().replace(/^@/, '');
+    const username = clean(old.username);
     const label = username || old.nickname || '(без имени)';
 
     if (!username) {
-      log(`SKIP ${label}: нет TikTok-юзернейма, статистику не обновляем`);
+      log(`SKIP ${label}: нет TikTok-юзернейма`);
       members.push(old);
       continue;
     }
 
-    try {
-      const p = await fetchProfile(username);
-      const growth = old.views
-        ? Math.round(((p.views - old.views) / old.views) * 1000) / 10
+    const key = username.toLowerCase();
+    const posts = byUser.get(key);
+    const prof = profiles.get(key);
+    const next = { ...old, username }; // nickname, role, joined, telegram и др. сохраняются
+
+    if (posts) {
+      next.views = posts.views;
+      next.likes = posts.likes;
+      next.growth = old.views
+        ? Math.round(((posts.views - old.views) / old.views) * 1000) / 10
         : 0;
-      members.push({
-        ...old, // nickname, role, joined, telegram и любые другие поля сохраняются
-        username,
-        avatar: p.avatar || old.avatar || '',
-        views: p.views,
-        likes: p.likes,
-        followers: p.followers,
-        growth
-      });
       fresh++;
-      failsInRow = 0;
-      log(`OK  ${label}: views=${p.views} likes=${p.likes} followers=${p.followers}`);
-    } catch (e) {
-      const d = e.response && e.response.data;
-      const body = d ? ' | ' + String(typeof d === 'string' ? d : JSON.stringify(d)).replace(/\s+/g, ' ').slice(0, 200) : '';
-      log(`ERR ${label}: ${e.message}${body}`);
-      members.push(old); // оставляем прошлые данные, чтобы сайт не ломался
-      failsInRow++;
-      if (fresh === 0 && failsInRow >= 4) {
-        throw new Error('API отклоняет запросы (4 ошибки подряд, ни одного успеха) — останавливаюсь, stats.json не меняю');
-      }
+    } else {
+      log(`WARN ${label}: видео не найдены (закрытый профиль, нет постов или неверный юзернейм) — просмотры оставляю прошлые`);
     }
-    await sleep(DELAY_MS);
+    if (prof) {
+      if (prof.followerCount != null) next.followers = prof.followerCount;
+      if (prof.avatarUrl) next.avatar = prof.avatarUrl;
+    }
+    members.push(next);
+    if (posts || prof) {
+      log(`OK  ${label}: views=${next.views} likes=${next.likes} followers=${next.followers ?? '—'}`);
+    }
   }
 
-  if (fresh === 0) {
-    throw new Error('Ни один профиль не обновился — stats.json не трогаем');
-  }
+  if (fresh === 0) throw new Error('Ни одному участнику не удалось обновить просмотры — stats.json не трогаем');
 
   members.sort((a, b) => (b.views || 0) - (a.views || 0));
   members.forEach((m, i) => { m.position = i + 1; });
@@ -184,7 +198,7 @@ async function updateStats(statsPath) {
   const tmp = statsPath + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(result, null, 2) + '\n');
   fs.renameSync(tmp, statsPath);
-  log(`stats.json обновлён (${members.length} участников, обновлено ${fresh})`);
+  log(`stats.json обновлён (${members.length} участников, просмотры обновлены у ${fresh})`);
 }
 
 async function main() {
